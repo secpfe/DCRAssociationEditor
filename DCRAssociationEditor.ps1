@@ -62,6 +62,7 @@ function QueryDCRAssociations() {
 
             $displayText = "$resourceName ($resourceGroup)"
             switch ($resourceType) {
+                # `u{2733} `u{1f4ab}
                 'machines' { $displayText = "✳️ $displayText" }
                 'virtualmachines' { $displayText = "💫 $displayText" }
             }
@@ -85,7 +86,10 @@ function QueryDCRAssociations() {
 function QueryAzureResources {
     if (-not (ValidateInputs)) { return }
     $resourceGroupName = $textBoxResourceGroup.Text
-    $subscriptionId = $textBoxMachineSubscriptionId.Text -ne '' ? $textBoxMachineSubscriptionId.Text : $inputSubscriptionId.Text
+    if ($textBoxMachineSubscriptionId.Text -ne '')
+    {
+    $subscriptionId = ? $textBoxMachineSubscriptionId.Text }
+    else {$subscriptionId = $inputSubscriptionId.Text}
 
     if ([string]::IsNullOrWhiteSpace($resourceGroupName)) {
         UpdateStatusLabel "Resource Group name is required." "DarkRed"
@@ -266,8 +270,11 @@ function RemoveAssociation([string]$associationId) {
     }
 }
 
+#Install Az.Accounts
+Install-Module Az.Accounts
+
 # Run Connect-AzAccount manually if needed
-# Connect-AzAccount
+Connect-AzAccount
 
 # Initialize hashtables to store mappings
 $idMappings = @{}
