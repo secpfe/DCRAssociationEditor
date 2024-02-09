@@ -86,10 +86,10 @@ function QueryDCRAssociations() {
 function QueryAzureResources {
     if (-not (ValidateInputs)) { return }
     $resourceGroupName = $textBoxResourceGroup.Text
-    if ($textBoxMachineSubscriptionId.Text -ne '')
-    {
-    $subscriptionId = $textBoxMachineSubscriptionId.Text }
-    else {$subscriptionId = $inputSubscriptionId.Text}
+    if ($textBoxMachineSubscriptionId.Text -ne '') {
+        $subscriptionId = $textBoxMachineSubscriptionId.Text 
+    }
+    else { $subscriptionId = $inputSubscriptionId.Text }
 
     if ([string]::IsNullOrWhiteSpace($resourceGroupName)) {
         UpdateStatusLabel "Resource Group name is required." "DarkRed"
@@ -98,33 +98,40 @@ function QueryAzureResources {
 
     UpdateStatusLabel "Querying Azure resources..." "Orange"
     try {
-       
-        $resourceGroupName = $textBoxResourceGroup.Text
+        # Initialize $vms and $arc as empty arrays
+        $vms = @()
+        $arc = @()
 
         # Querying Azure VMs
         $vmQueryResult = Invoke-AzRestMethod -Path "/subscriptions/$subscriptionId/resourceGroups/$resourceGroupName/providers/Microsoft.Compute/virtualMachines?api-version=2022-03-01" -Method GET
         $vmsContent = $vmQueryResult.Content | ConvertFrom-Json 
-        $vms = foreach ($vm in $vmsContent.value) {
-            [PSCustomObject]@{
-                Id          = $vm.id
-                DisplayName = "$($vm.name)"
-                Type        = "AzureVM"
+        if ($vmsContent.Value) {
+            $vms = foreach ($vm in $vmsContent.value) {
+                [PSCustomObject]@{
+                    Id          = $vm.id
+                    DisplayName = "$($vm.name)"
+                    Type        = "AzureVM"
+                }
             }
         }
+        else { $vms = @() }
         
         # Querying Azure Arc machines
         $arcMachinesQueryResult = Invoke-AzRestMethod -Path "/subscriptions/$subscriptionId/resourceGroups/$resourceGroupName/providers/Microsoft.HybridCompute/machines?api-version=2020-08-02" -Method GET
         $arcContent = $arcMachinesQueryResult.Content | ConvertFrom-Json 
-        $arc = foreach ($machine in $arcContent.value) {
-            [PSCustomObject]@{
-                Id          = $machine.id
-                DisplayName = "$($machine.name)"
-                Type        = "Arc"
+        if ($arcContent.value) {
+            $arc = foreach ($machine in $arcContent.value) {
+                [PSCustomObject]@{
+                    Id          = $machine.id
+                    DisplayName = "$($machine.name)"
+                    Type        = "Arc"
+                }
             }
         }
+        else { $arc = @() }
 
         # Combine results 
-        $combinedResults = $vms + $arc 
+        $combinedResults = @($vms) + @($arc)
             
         if ($combinedResults.Count -gt 0) {
             # Clear the list box before repopulating
