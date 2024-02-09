@@ -44,7 +44,7 @@ function QueryDCRAssociations() {
         }
 
         # Execute the query with the provided Subscription ID and DCR Name to get associations
-        $DCRAsso = Invoke-AzRestMethod -Path ("/subscriptions/$subscriptionId/resourceGroups/SOC/providers/Microsoft.Insights/dataCollectionRules/$dcrName/associations?api-version=2022-06-01") -Method GET
+        $DCRAsso = Invoke-AzRestMethod -Path ("/subscriptions/$subscriptionId/resourceGroups/$global:dcrResourceGroup/providers/Microsoft.Insights/dataCollectionRules/$dcrName/associations?api-version=2022-06-01") -Method GET
    
         # Extract associations
         $associations = $DCRAsso.Content | ConvertFrom-Json
