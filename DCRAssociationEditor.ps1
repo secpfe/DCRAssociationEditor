@@ -88,7 +88,7 @@ function QueryAzureResources {
     $resourceGroupName = $textBoxResourceGroup.Text
     if ($textBoxMachineSubscriptionId.Text -ne '')
     {
-    $subscriptionId = ? $textBoxMachineSubscriptionId.Text }
+    $subscriptionId = $textBoxMachineSubscriptionId.Text }
     else {$subscriptionId = $inputSubscriptionId.Text}
 
     if ([string]::IsNullOrWhiteSpace($resourceGroupName)) {
