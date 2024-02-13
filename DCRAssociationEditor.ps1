@@ -67,7 +67,7 @@ function QueryDCRAssociations() {
                 'virtualmachines' { $displayText = "💫 $displayText" }
             }
 
-            $idMappings[$displayText] = $_.id
+            $idMappings[$displayText] = $_.id.ToLower()
             $listBoxAssociations.Items.Add($displayText)
 
             $buttonQueryAzureResources.Enabled = $true
@@ -136,30 +136,18 @@ function QueryAzureResources {
         if ($combinedResults.Count -gt 0) {
             # Clear the list box before repopulating
             $listBoxArcAndVms.Items.Clear()
-        
+            $dcrName = $inputDCRName.Text.ToLower()
+
             # Populate the list box, filtering out already associated machines
             $combinedResults | ForEach-Object {
-                $dcrName = $inputDCRName.Text.ToLower()
-                $resourceGroupName = $textBoxResourceGroup.Text
-                $subscriptionId = $inputSubscriptionId.Text
                 $machineName = $_.DisplayName
-        
-                # Determine the provider namespace based on the type of machine
-                $providerNamespace = if ($_.Type -eq "Arc") {
-                    "Microsoft.HybridCompute/machines"
-                }
-                else {
-                    "Microsoft.Compute/virtualMachines"
-                }
-        
-                # Original resource ID components, adjusted for provider namespace
-                $baseResourcePath = "/subscriptions/$subscriptionId/resourceGroups/$resourceGroupName/providers/$providerNamespace/$machineName".ToLower()
+
                 # Append the DCR association path using the DCR name
                 $dcrAssociationPath = "/providers/microsoft.insights/datacollectionruleassociations/$dcrName-association"
-                # Combine the paths to form the new resource ID
-                $newResourceId = $baseResourcePath + $dcrAssociationPath
+                # Combine the paths to form the association resource ID
+                $newResourceId = $_.Id + $dcrAssociationPath
         
-                if (-not $idMappings.ContainsValue($newResourceId)) {
+                if (-not $idMappings.ContainsValue($newResourceId.ToLower())) {
 
                     if ($_.Type -eq "Arc") {
                         $dispText = "✳️ $machineName"
