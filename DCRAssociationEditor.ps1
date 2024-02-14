@@ -1,6 +1,53 @@
 # Load assembly for Windows Forms
 Add-Type -AssemblyName System.Windows.Forms
 
+
+#Provision AMA agent to an Azure VM
+function ProvisionAMAAgentOnAzureVM($machine) {
+    $createdSystemIdentity = $false
+    if ($null -eq $machine.IdentityType) {
+        # we need to assign systemassigned identity to the machine before AMA deployment
+        $vm = Get-AzVM -ResourceGroupName $textBoxResourceGroup.Text -Name $machine.DisplayName
+        Update-AzVM -ResourceGroupName $textBoxResourceGroup.Text -VM $vm -IdentityType SystemAssigned
+        $createdSystemIdentity = $true
+    }
+
+    if ($machine.OS.ToLower() -eq "linux") {
+        if ($createdSystemIdentity -or ($null -ne $machine.IdentityType -and $machine.IdentityType.ToLower() -eq "systemassigned")) {
+            # System-assigned managed Identity for Linux
+            Set-AzVMExtension -Name AzureMonitorLinuxAgent -ExtensionType AzureMonitorLinuxAgent -Publisher Microsoft.Azure.Monitor -ResourceGroupName $textBoxResourceGroup.Text -VMName $machine.DisplayName -Location $machine.Location -TypeHandlerVersion $inputAMAVersionLinux.Text
+        }
+        else {
+            # User-assigned managed Identity for Linux
+            # Set-AzVMExtension -Name AzureMonitorLinuxAgent -ExtensionType AzureMonitorLinuxAgent -Publisher Microsoft.Azure.Monitor -ResourceGroupName $textBoxResourceGroup.Text -VMName $machine.DisplayName -Location $machine.Location -TypeHandlerVersion $inputAMAVersionLinux.Text  #-SettingString '{"authentication":{"managedIdentity":{"identifier-name":"mi_res_id","identifier-value":/subscriptions/<my-subscription-id>/resourceGroups/<my-resource-group>/providers/Microsoft.ManagedIdentity/userAssignedIdentities/<my-user-assigned-identity>"}}}'
+            # Not Implemented!
+        }
+    }
+    else { 
+        if ($createdSystemIdentity -or ($null -ne $machine.IdentityType -and $machine.IdentityType.ToLower() -eq "systemassigned")) {
+            # System-assigned managed Identity for Windows
+            Set-AzVMExtension -Name AzureMonitorWindowsAgent -ExtensionType AzureMonitorWindowsAgent -Publisher Microsoft.Azure.Monitor -ResourceGroupName $textBoxResourceGroup.Text -VMName $machine.DisplayName -Location $machine.Location -TypeHandlerVersion $inputAMAVersionWindows.Text
+        }
+        else {
+            # User-assigned managed Identity for Windows
+            #Set-AzVMExtension -Name AzureMonitorWindowsAgent -ExtensionType AzureMonitorWindowsAgent -Publisher Microsoft.Azure.Monitor -ResourceGroupName $textBoxResourceGroup.Text -VMName $machine.DisplayName -Location $machine.Location -TypeHandlerVersion $inputAMAVersionWindows.Text  # -EnableAutomaticUpgrade $true -SettingString '{"authentication":{"managedIdentity":{"identifier-name":"mi_res_id","identifier-value":"/subscriptions/<my-subscription-id>/resourceGroups/<my-resource-group>/providers/Microsoft.ManagedIdentity/userAssignedIdentities/<my-user-assigned-identity>"}}}'
+            # Not Implemented!
+        }
+    }
+
+}
+
+#Provision AMA agent to an ARC-Connected machine
+function ProvisionAMAAgentOnArcMachine($machine) {
+    if ($machine.OS.ToLower() -eq "linux") {
+
+        New-AzConnectedMachineExtension -Name AzureMonitorLinuxAgent -ExtensionType AzureMonitorLinuxAgent -Publisher Microsoft.Azure.Monitor -ResourceGroupName $textBoxResourceGroup.Text -MachineName $machine.DisplayName -Location $machine.Location 
+    }
+    else { 
+        New-AzConnectedMachineExtension -Name AzureMonitorWindowsAgent -ExtensionType AzureMonitorWindowsAgent -Publisher Microsoft.Azure.Monitor -ResourceGroupName $textBoxResourceGroup.Text -MachineName $machine.DisplayName -Location $machine.Location 
+    }
+}
+
 # Function to update the status label
 function UpdateStatusLabel([string]$text, [string]$color) {
     $labelStatus.Text = $text
@@ -108,9 +155,14 @@ function QueryAzureResources {
         if ($vmsContent.Value) {
             $vms = foreach ($vm in $vmsContent.value) {
                 [PSCustomObject]@{
-                    Id          = $vm.id
-                    DisplayName = "$($vm.name)"
-                    Type        = "AzureVM"
+                    Id                  = $vm.id
+                    DisplayName         = "$($vm.name)"
+                    Type                = "AzureVM"
+                    Location            = $vm.location
+                    OS                  = $vm.properties.storageProfile.osDisk.osType
+                    IdentityType        = $vm.identity.type
+                    IdentityPrincipalId = $vm.identity.principalId
+                    IdentityTenantId    = $vm.identity.principalId
                 }
             }
         }
@@ -125,6 +177,8 @@ function QueryAzureResources {
                     Id          = $machine.id
                     DisplayName = "$($machine.name)"
                     Type        = "Arc"
+                    Location    = $machine.location
+                    OS          = $machine.properties.osName
                 }
             }
         }
@@ -155,7 +209,8 @@ function QueryAzureResources {
                     else { $dispText = "💫 $machineName" }
 
                     $listBoxArcAndVms.Items.Add($dispText)
-                    $global:machinesMappings[$dispText] = $_.Id
+                    #$global:machinesMappings[$dispText] = $_.Id
+                    $global:machinesMappings[$dispText] = $_
                 
                 }
             }
@@ -180,6 +235,13 @@ function AddAssociations {
         UpdateStatusLabel "No machines selected for association." "DarkRed"
         return
     }
+    if ($checkboxProvisionAMA.Checked) {
+        if ($textBoxMachineSubscriptionId.Text -ne '') {
+            $subscriptionId = $textBoxMachineSubscriptionId.Text 
+        }
+        else { $subscriptionId = $inputSubscriptionId.Text }
+        Set-AzContext -SubscriptionId $subscriptionId
+    }
 
     UpdateStatusLabel "Adding associations..." "Orange"
 
@@ -187,7 +249,8 @@ function AddAssociations {
         foreach ($selectedMachine in $selectedMachines) {
             if ($null -ne $selectedMachine -and $global:machinesMappings.ContainsKey($selectedMachine)) {
                 # Get the base machine ID
-                $machineId = $global:machinesMappings[$selectedMachine]
+                $machine = $global:machinesMappings[$selectedMachine]
+                $machineId = $machine.Id
     
                 # Construct the necessary data for adding an association
                 $subscriptionId = $inputSubscriptionId.Text
@@ -206,7 +269,20 @@ function AddAssociations {
     
                 if ($associationResult.StatusCode -eq 200) {
                     Write-Host "Association added successfully for $selectedMachine"
-                        
+                    
+                    # After successfully adding the association, check if AMA provisioning is requested
+                    if ($checkboxProvisionAMA.Checked) {
+                        # Provision AMA agent based on the machine type
+                        if ($machineId.Contains("providers/Microsoft.HybridCompute")) {
+                            # Logic for provisioning AMA on Arc-connected machine
+                            ProvisionAMAAgentOnArcMachine $machine
+                        }
+                        else {
+                            # Logic for provisioning AMA on Azure VM
+                            ProvisionAMAAgentOnAzureVM $machine
+                        }
+                    }
+
                 }
                 else {
                     Write-Host "Failed to add association for $selectedMachine"
@@ -266,10 +342,15 @@ function RemoveAssociation([string]$associationId) {
 }
 
 #Install Az.Accounts
-Install-Module Az.Accounts
+#Install-Module Az.Accounts
+#Install-Module Az.ConnectedMachine
+#Install-Module Az.Compute
+Import-Module Az.Accounts
+Import-Module Az.ConnectedMachine
+Import-Module Az.Compute
 
 # Run Connect-AzAccount manually if needed
-Connect-AzAccount
+#Connect-AzAccount
 
 # Initialize hashtables to store mappings
 $idMappings = @{}
@@ -395,6 +476,34 @@ $buttonRemoveAssociation.Location = New-Object System.Drawing.Point(10, 540)
 $buttonRemoveAssociation.Size = New-Object System.Drawing.Size(200, 23)
 $buttonRemoveAssociation.Add_Click({ RemoveSelectedAssociation })
 
+# Checkbox for triggering AMA agent provisioning
+$checkboxProvisionAMA = New-Object System.Windows.Forms.CheckBox
+$checkboxProvisionAMA.Text = "Also trigger provisioning of AMA agent"
+$checkboxProvisionAMA.Location = New-Object System.Drawing.Point(300, 310)
+$checkboxProvisionAMA.AutoSize = $true
+
+
+# AMA versions for Linux and Windows
+$labelAMAVersionLinux = New-Object System.Windows.Forms.Label
+$labelAMAVersionLinux.Text = 'Linux AMA version:'
+$labelAMAVersionLinux.Location = New-Object System.Drawing.Point(300, 340)
+$labelAMAVersionLinux.Width = 150
+$inputAMAVersionLinux = New-Object System.Windows.Forms.TextBox
+$inputAMAVersionLinux.Location = New-Object System.Drawing.Point(470, 340)
+$inputAMAVersionLinux.Text = '1.28'
+$inputAMAVersionLinux.Width = 60
+
+$labelAMAVersionWindows = New-Object System.Windows.Forms.Label
+$labelAMAVersionWindows.Text = 'Windows AMA version:'
+$labelAMAVersionWindows.Location = New-Object System.Drawing.Point(300, 370)
+$labelAMAVersionWindows.Width = 150
+$inputAMAVersionWindows = New-Object System.Windows.Forms.TextBox
+$inputAMAVersionWindows.Location = New-Object System.Drawing.Point(470, 370)
+$inputAMAVersionWindows.Text = '1.22'
+$inputAMAVersionWindows.Width = 60
+
+
+
 # Add controls to the form
 $form.Controls.Add($labelStatus)
 $form.Controls.Add($labelSubscriptionId)
@@ -414,6 +523,11 @@ $form.Controls.Add($textBoxResourceGroup)
 $form.Controls.Add($buttonQueryAzureResources)
 $form.Controls.Add($listBoxArcAndVms)
 $form.Controls.Add($buttonAddAssociation)
+$form.Controls.Add($checkboxProvisionAMA)
+$form.Controls.Add($labelAMAVersionLinux)
+$form.Controls.Add($inputAMAVersionLinux)
+$form.Controls.Add($labelAMAVersionWindows)
+$form.Controls.Add($inputAMAVersionWindows)
 
 # Show the form
 $form.ShowDialog()
