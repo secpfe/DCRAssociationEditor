@@ -15,7 +15,7 @@ function ProvisionAMAAgentOnAzureVM($machine) {
     if ($machine.OS.ToLower() -eq "linux") {
         if ($createdSystemIdentity -or ($null -ne $machine.IdentityType -and $machine.IdentityType.ToLower() -eq "systemassigned")) {
             # System-assigned managed Identity for Linux
-            Set-AzVMExtension -Name AzureMonitorLinuxAgent -ExtensionType AzureMonitorLinuxAgent -Publisher Microsoft.Azure.Monitor -ResourceGroupName $textBoxResourceGroup.Text -VMName $machine.DisplayName -Location $machine.Location -TypeHandlerVersion $inputAMAVersionLinux.Text
+            Set-AzVMExtension -Name AzureMonitorLinuxAgent -ExtensionType AzureMonitorLinuxAgent -Publisher Microsoft.Azure.Monitor -ResourceGroupName $textBoxResourceGroup.Text -VMName $machine.DisplayName -Location $machine.Location -TypeHandlerVersion $inputAMAVersionLinux.Text -AsJob
         }
         else {
             # User-assigned managed Identity for Linux
@@ -26,7 +26,7 @@ function ProvisionAMAAgentOnAzureVM($machine) {
     else { 
         if ($createdSystemIdentity -or ($null -ne $machine.IdentityType -and $machine.IdentityType.ToLower() -eq "systemassigned")) {
             # System-assigned managed Identity for Windows
-            Set-AzVMExtension -Name AzureMonitorWindowsAgent -ExtensionType AzureMonitorWindowsAgent -Publisher Microsoft.Azure.Monitor -ResourceGroupName $textBoxResourceGroup.Text -VMName $machine.DisplayName -Location $machine.Location -TypeHandlerVersion $inputAMAVersionWindows.Text
+            Set-AzVMExtension -Name AzureMonitorWindowsAgent -ExtensionType AzureMonitorWindowsAgent -Publisher Microsoft.Azure.Monitor -ResourceGroupName $textBoxResourceGroup.Text -VMName $machine.DisplayName -Location $machine.Location -TypeHandlerVersion $inputAMAVersionWindows.Text -AsJob
         }
         else {
             # User-assigned managed Identity for Windows
@@ -41,10 +41,10 @@ function ProvisionAMAAgentOnAzureVM($machine) {
 function ProvisionAMAAgentOnArcMachine($machine) {
     if ($machine.OS.ToLower() -eq "linux") {
 
-        New-AzConnectedMachineExtension -Name AzureMonitorLinuxAgent -ExtensionType AzureMonitorLinuxAgent -Publisher Microsoft.Azure.Monitor -ResourceGroupName $textBoxResourceGroup.Text -MachineName $machine.DisplayName -Location $machine.Location 
+        New-AzConnectedMachineExtension -Name AzureMonitorLinuxAgent -ExtensionType AzureMonitorLinuxAgent -Publisher Microsoft.Azure.Monitor -ResourceGroupName $textBoxResourceGroup.Text -MachineName $machine.DisplayName -Location $machine.Location -AsJob
     }
     else { 
-        New-AzConnectedMachineExtension -Name AzureMonitorWindowsAgent -ExtensionType AzureMonitorWindowsAgent -Publisher Microsoft.Azure.Monitor -ResourceGroupName $textBoxResourceGroup.Text -MachineName $machine.DisplayName -Location $machine.Location 
+        New-AzConnectedMachineExtension -Name AzureMonitorWindowsAgent -ExtensionType AzureMonitorWindowsAgent -Publisher Microsoft.Azure.Monitor -ResourceGroupName $textBoxResourceGroup.Text -MachineName $machine.DisplayName -Location $machine.Location -AsJob
     }
 }
 
