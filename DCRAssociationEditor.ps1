@@ -341,16 +341,16 @@ function RemoveAssociation([string]$associationId) {
     }
 }
 
-#Install Az.Accounts
-#Install-Module Az.Accounts
-#Install-Module Az.ConnectedMachine
-#Install-Module Az.Compute
+#Install Modules
+Install-Module Az.Accounts
+Install-Module Az.ConnectedMachine
+Install-Module Az.Compute
 Import-Module Az.Accounts
 Import-Module Az.ConnectedMachine
 Import-Module Az.Compute
 
 # Run Connect-AzAccount manually if needed
-#Connect-AzAccount
+Connect-AzAccount
 
 # Initialize hashtables to store mappings
 $idMappings = @{}
