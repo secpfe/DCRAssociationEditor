@@ -77,31 +77,47 @@ function QueryDCRAssociations() {
         $dcrName = $inputDCRName.Text
    
 
-        # Query all DCRs in the subscription
-        $DCRsContent = Invoke-AzRestMethod -Path ("/subscriptions/$subscriptionId/providers/Microsoft.Insights/dataCollectionRules?api-version=2022-06-01") -Method GET
-        $DCRs = $DCRsContent.Content | ConvertFrom-Json
+        # Query all DCRs in the subscription with pagination
+        $dcrPath = "/subscriptions/$subscriptionId/providers/Microsoft.Insights/dataCollectionRules?api-version=2022-06-01"
+        do {
+            $DCRsContent = Invoke-AzRestMethod -Path $dcrPath -Method GET
+            $DCRs = $DCRsContent.Content | ConvertFrom-Json
 
-        # Filter to find the matching DCR by name and extract its resource group
-        foreach ($dcr in $DCRs.value) {
-            if ($dcr.name -eq $dcrName) {
-                $idParts = $dcr.id -split '/'
-                $global:dcrResourceGroup = $idParts[-5] # Adjust index if necessary
-                break
+            # Filter to find the matching DCR by name and extract its resource group
+            foreach ($dcr in $DCRs.value) {
+                if ($dcr.name -eq $dcrName) {
+                    $idParts = $dcr.id -split '/'
+                    $global:dcrResourceGroup = $idParts[-5] # Adjust index if necessary
+                    break
+                }
             }
+            $dcrPath = if ($DCRs.nextLink) { $DCRs.nextLink -replace 'https://management.azure.com', '' } else { $null }
+        } while ($dcrPath -and -not $global:dcrResourceGroup )
+
+        if (-not $global:dcrResourceGroup) {
+            UpdateStatusLabel "DCR not found." "DarkRed"
+            return
         }
 
-        # Execute the query with the provided Subscription ID and DCR Name to get associations
-        $DCRAsso = Invoke-AzRestMethod -Path ("/subscriptions/$subscriptionId/resourceGroups/$global:dcrResourceGroup/providers/Microsoft.Insights/dataCollectionRules/$dcrName/associations?api-version=2022-06-01") -Method GET
-   
-        # Extract associations
-        $associations = $DCRAsso.Content | ConvertFrom-Json
+        # Initialize associations array
+        $allAssociations = @()
+
+        # Execute the query with the provided Subscription ID and DCR Name to get associations 
+        # Use pagination
+        $assoPath = "/subscriptions/$subscriptionId/resourceGroups/$global:dcrResourceGroup/providers/Microsoft.Insights/dataCollectionRules/$dcrName/associations?api-version=2022-06-01"
         
+        do {
+            $DCRAsso = Invoke-AzRestMethod -Path $assoPath  -Method GET
+            # Extract associations
+            $associations = $DCRAsso.Content | ConvertFrom-Json
+            $allAssociations += $associations.value
+            $assoPath = if ($associations.nextLink) { $associations.nextLink -replace 'https://management.azure.com', '' } else { $null }
+        } while ($assoPath)
 
         # Clear existing items in the list box
         $listBoxAssociations.Items.Clear()
-   
         # Add associations to the list box with different icons based on machine type Arc/AzureVM
-        $associations.value | ForEach-Object {
+        $allAssociations | ForEach-Object {
             $idParts = $_.id -split '/'
             $resourceName = $idParts[-5]
             $resourceType = $idParts[-6]
@@ -120,6 +136,8 @@ function QueryDCRAssociations() {
             $buttonQueryAzureResources.Enabled = $true
         }
         
+
+
         # After querying and processing, update the status accordingly
         $sucstatus = 'Read ' + $associations.Value.Count.ToString() + ' associations.'
         UpdateStatusLabel $sucstatus "DarkGreen"
@@ -149,40 +167,48 @@ function QueryAzureResources {
         $vms = @()
         $arc = @()
 
-        # Querying Azure VMs
-        $vmQueryResult = Invoke-AzRestMethod -Path "/subscriptions/$subscriptionId/resourceGroups/$resourceGroupName/providers/Microsoft.Compute/virtualMachines?api-version=2022-03-01" -Method GET
-        $vmsContent = $vmQueryResult.Content | ConvertFrom-Json 
-        if ($vmsContent.Value) {
-            $vms = foreach ($vm in $vmsContent.value) {
-                [PSCustomObject]@{
-                    Id                  = $vm.id
-                    DisplayName         = "$($vm.name)"
-                    Type                = "AzureVM"
-                    Location            = $vm.location
-                    OS                  = $vm.properties.storageProfile.osDisk.osType
-                    IdentityType        = $vm.identity.type
-                    IdentityPrincipalId = $vm.identity.principalId
-                    IdentityTenantId    = $vm.identity.principalId
+
+        # Querying Azure VMs with pagination
+        $vmPath = "/subscriptions/$subscriptionId/resourceGroups/$resourceGroupName/providers/Microsoft.Compute/virtualMachines?api-version=2022-03-01"
+        do {
+            $vmQueryResult = Invoke-AzRestMethod -Path $vmPath -Method GET
+            $vmsContent = $vmQueryResult.Content | ConvertFrom-Json 
+            if ($vmsContent.Value) {
+                $vms += $vmsContent.value | ForEach-Object {
+                    [PSCustomObject]@{
+                        Id                  = $_.id
+                        DisplayName         = $_.name
+                        Type                = "AzureVM"
+                        Location            = $_.location
+                        OS                  = $_.properties.storageProfile.osDisk.osType
+                        IdentityType        = $_.identity.type
+                        IdentityPrincipalId = $_.identity.principalId
+                        IdentityTenantId    = $_.identity.principalId
+                    }
                 }
             }
-        }
-        else { $vms = @() }
+            $vmPath = if ($vmsContent.nextLink) { $vmsContent.nextLink -replace 'https://management.azure.com', '' } else { $null }
+        } while ($vmPath)
         
-        # Querying Azure Arc machines
-        $arcMachinesQueryResult = Invoke-AzRestMethod -Path "/subscriptions/$subscriptionId/resourceGroups/$resourceGroupName/providers/Microsoft.HybridCompute/machines?api-version=2020-08-02" -Method GET
-        $arcContent = $arcMachinesQueryResult.Content | ConvertFrom-Json 
-        if ($arcContent.value) {
-            $arc = foreach ($machine in $arcContent.value) {
-                [PSCustomObject]@{
-                    Id          = $machine.id
-                    DisplayName = "$($machine.name)"
-                    Type        = "Arc"
-                    Location    = $machine.location
-                    OS          = $machine.properties.osName
+        
+        # Querying Azure Arc machines with pagination
+        $arcPath = "/subscriptions/$subscriptionId/resourceGroups/$resourceGroupName/providers/Microsoft.HybridCompute/machines?api-version=2020-08-02"
+        do {
+            $arcMachinesQueryResult = Invoke-AzRestMethod -Path $arcPath -Method GET
+            $arcContent = $arcMachinesQueryResult.Content | ConvertFrom-Json 
+            if ($arcContent.value) {
+                $arc += $arcContent.value | ForEach-Object {
+                    [PSCustomObject]@{
+                        Id          = $_.id
+                        DisplayName = $_.name
+                        Type        = "Arc"
+                        Location    = $_.location
+                        OS          = $_.properties.osName
+                    }
                 }
             }
-        }
-        else { $arc = @() }
+            $arcPath = if ($arcContent.nextLink) { $arcContent.nextLink -replace 'https://management.azure.com', '' } else { $null }
+        } while ($arcPath)
 
         # Combine results 
         $combinedResults = @($vms) + @($arc)
